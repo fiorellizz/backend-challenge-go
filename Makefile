@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
-DB_URL      ?= postgres://wager:wager@localhost:5432/wager?sslmode=disable
+DB_URL      ?= postgres://wager:wager@localhost:5433/wager?sslmode=disable
 MIGRATE     := docker run --rm --network host -v $(PWD)/migrations:/migrations migrate/migrate:v4.18.1
 KC_URL      ?= http://localhost:8080
 KC_REALM    ?= wager

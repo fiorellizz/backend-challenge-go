@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/fiorellizz/backend-challenge-go/internal/platform/metrics"
 	"io"
 	"log/slog"
 	"net/http"
@@ -43,7 +44,7 @@ func newAPI(t *testing.T) *api {
 	guard := httpapi.NewAuth(fakeVerifier{}, cfg, log)
 	mux := httpapi.NewMux()
 	httpapi.NewWalletHandler(wallets, log).Register(mux, guard)
-	httpapi.NewWageringHandler(wagering, log).Register(mux, guard)
+	httpapi.NewWageringHandler(wagering, metrics.New(), log).Register(mux, guard)
 	ts := httptest.NewServer(mux)
 	t.Cleanup(ts.Close)
 	return &api{ts: ts, store: store, token: tokenInternal}

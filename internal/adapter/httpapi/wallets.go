@@ -10,8 +10,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/fiorellizz/backend-challenge-go/internal/domain/errs"
 	"github.com/fiorellizz/backend-challenge-go/internal/domain/id"
 	"github.com/fiorellizz/backend-challenge-go/internal/domain/money"
@@ -172,13 +170,4 @@ func decodeJSON(r *http.Request, v any) error {
 		return fmt.Errorf("%w: unexpected data after JSON body", errs.ErrValidation)
 	}
 	return nil
-}
-
-// correlationID honours the caller's X-Correlation-ID or mints one, so
-// every log line and event of the request can be traced together.
-func correlationID(r *http.Request) string {
-	if v := r.Header.Get("X-Correlation-ID"); v != "" && len(v) <= 128 {
-		return v
-	}
-	return uuid.Must(uuid.NewV7()).String()
 }

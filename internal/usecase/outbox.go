@@ -78,6 +78,12 @@ func (s *OutboxService) PublishBatch(ctx context.Context) (PublishOutcome, error
 	return out, err
 }
 
+// Lag returns how long the oldest unpublished event has been waiting,
+// measured against the outbox clock, for the outbox_lag_seconds gauge.
+func (s *OutboxService) Lag(ctx context.Context, reads Repositories) (time.Duration, error) {
+	return reads.Outbox.OldestPendingAge(ctx, s.now())
+}
+
 func (s *OutboxService) recordFailure(ctx context.Context, r Repositories, rec OutboxRecord, cause error, now time.Time) error {
 	attempts := rec.Attempts + 1
 	next := now.Add(backoff(attempts))

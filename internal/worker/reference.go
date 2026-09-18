@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/fiorellizz/backend-challenge-go/internal/platform/metrics"
 	"github.com/fiorellizz/backend-challenge-go/internal/usecase"
 )
 
@@ -15,13 +16,14 @@ import (
 type ReferenceResolver struct {
 	wagering *usecase.WageringService
 	interval time.Duration
+	metrics  *metrics.Metrics
 	log      *slog.Logger
 }
 
 // NewReferenceResolver builds the worker. interval is how long it sleeps
 // when nothing is due or after an infrastructure error.
-func NewReferenceResolver(wagering *usecase.WageringService, interval time.Duration, log *slog.Logger) *ReferenceResolver {
-	return &ReferenceResolver{wagering: wagering, interval: interval, log: log.With("component", "reference-resolver")}
+func NewReferenceResolver(wagering *usecase.WageringService, interval time.Duration, m *metrics.Metrics, log *slog.Logger) *ReferenceResolver {
+	return &ReferenceResolver{wagering: wagering, interval: interval, metrics: m, log: log.With("component", "reference-resolver")}
 }
 
 // Run drains due references, then sleeps for the interval, until ctx is
@@ -47,7 +49,7 @@ func (r *ReferenceResolver) Run(ctx context.Context) {
 func (r *ReferenceResolver) RunOnce(ctx context.Context) (int, error) {
 	handled := 0
 	for ctx.Err() == nil {
-		found, err := r.wagering.ResolveNextPendingReference(ctx)
+		outcome, found, err := r.wagering.ResolveNextPendingReference(ctx)
 		if err != nil {
 			return handled, err
 		}
@@ -55,6 +57,8 @@ func (r *ReferenceResolver) RunOnce(ctx context.Context) (int, error) {
 			return handled, nil
 		}
 		handled++
+		r.metrics.ReferenceResolutionsTotal.WithLabelValues(string(outcome)).Inc()
+		r.log.Info("pending reference handled", "outcome", string(outcome))
 	}
 	return handled, ctx.Err()
 }

@@ -1,10 +1,15 @@
 package fxmodules
 
 import (
+	"log/slog"
+
 	"go.uber.org/fx"
 
+	"github.com/fiorellizz/backend-challenge-go/internal/domain/id"
+	"github.com/fiorellizz/backend-challenge-go/internal/domain/money"
 	"github.com/fiorellizz/backend-challenge-go/internal/domain/wagering"
 	"github.com/fiorellizz/backend-challenge-go/internal/platform/config"
+	"github.com/fiorellizz/backend-challenge-go/internal/platform/metrics"
 	"github.com/fiorellizz/backend-challenge-go/internal/usecase"
 )
 
@@ -14,11 +19,17 @@ var UseCases = fx.Module("usecase",
 	fx.Provide(
 		func() usecase.Clock { return usecase.SystemClock },
 		newReferencePolicy,
-		usecase.NewWalletService,
+		newWalletService,
 		usecase.NewWageringService,
 		newOutboxService,
 	),
 )
+
+// newWalletService links reconciliation divergences to their metric.
+func newWalletService(uow usecase.UnitOfWork, reads usecase.Repositories, now usecase.Clock, m *metrics.Metrics, log *slog.Logger) *usecase.WalletService {
+	return usecase.NewWalletService(uow, reads, now, log).
+		WithDivergenceObserver(func(id.WalletID, money.Money) { m.ReconciliationDivergencesTotal.Inc() })
+}
 
 // newReferencePolicy turns the REFERENCE_* settings into the domain policy
 // that bounds how long a reversal waits for its reference.

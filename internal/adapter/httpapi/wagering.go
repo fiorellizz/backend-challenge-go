@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"github.com/fiorellizz/backend-challenge-go/internal/domain/money"
 	"github.com/fiorellizz/backend-challenge-go/internal/domain/wagering"
 	"github.com/fiorellizz/backend-challenge-go/internal/platform/auth"
+	"github.com/fiorellizz/backend-challenge-go/internal/platform/metrics"
 	"github.com/fiorellizz/backend-challenge-go/internal/usecase"
 )
 
@@ -18,12 +20,13 @@ import (
 type WageringHandler struct {
 	wagering *usecase.WageringService
 	guard    *Auth
+	metrics  *metrics.Metrics
 	log      *slog.Logger
 }
 
 // NewWageringHandler builds the handler.
-func NewWageringHandler(wagering *usecase.WageringService, log *slog.Logger) *WageringHandler {
-	return &WageringHandler{wagering: wagering, log: log.With("component", "httpapi")}
+func NewWageringHandler(wagering *usecase.WageringService, m *metrics.Metrics, log *slog.Logger) *WageringHandler {
+	return &WageringHandler{wagering: wagering, metrics: m, log: log.With("component", "httpapi")}
 }
 
 // Register mounts the wagering routes. Submission and the provider query
@@ -112,6 +115,7 @@ func (h *WageringHandler) submit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	start := time.Now()
 	res, err := h.wagering.Process(r.Context(), usecase.ProcessInput{
 		IdempotencyKey: key, ProviderID: req.ProviderID, ExternalTransactionID: req.ExternalTransactionID,
 		PlayerID: req.PlayerID, WalletID: req.WalletID, RoundID: req.RoundID, GameID: req.GameID,
@@ -119,11 +123,29 @@ func (h *WageringHandler) submit(w http.ResponseWriter, r *http.Request) {
 		CorrelationID: correlationID(r),
 	})
 	if err != nil {
+		h.countConflict(err)
 		writeError(w, r, h.log, err)
 		return
 	}
+	tx := res.Transaction
+	h.metrics.ObserveProcessing("http", string(tx.Kind()), string(tx.Status()), string(tx.FailureCode()), res.IdempotentReplay, time.Since(start))
+	h.log.InfoContext(r.Context(), "operation handled",
+		"correlationId", correlationID(r), "transactionId", tx.ID().String(), "walletId", tx.WalletID().String(),
+		"providerId", tx.ProviderID(), "kind", string(tx.Kind()), "status", string(tx.Status()),
+		"failureCode", string(tx.FailureCode()), "idempotentReplay", res.IdempotentReplay)
 	status, body := toSubmitResponse(res)
 	writeJSON(w, status, body)
+}
+
+func (h *WageringHandler) countConflict(err error) {
+	switch {
+	case errors.Is(err, usecase.ErrPayloadMismatch):
+		h.metrics.ConflictsTotal.WithLabelValues("payload").Inc()
+	case errors.Is(err, usecase.ErrKeyMismatch):
+		h.metrics.ConflictsTotal.WithLabelValues("key").Inc()
+	case errors.Is(err, errs.ErrConflict):
+		h.metrics.ConflictsTotal.WithLabelValues("version").Inc()
+	}
 }
 
 func toSubmitResponse(res usecase.ProcessResult) (int, submitResponse) {

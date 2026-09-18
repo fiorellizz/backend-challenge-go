@@ -9,6 +9,7 @@ import (
 
 	"github.com/fiorellizz/backend-challenge-go/internal/adapter/sqsmsg"
 	"github.com/fiorellizz/backend-challenge-go/internal/platform/config"
+	"github.com/fiorellizz/backend-challenge-go/internal/platform/metrics"
 	"github.com/fiorellizz/backend-challenge-go/internal/usecase"
 	"github.com/fiorellizz/backend-challenge-go/internal/worker"
 )
@@ -30,12 +31,12 @@ func runConsumer(lc fx.Lifecycle, cfg config.Config, log *slog.Logger, c *sqsmsg
 	runLoop(lc, "sqs-consumer", c.Run, log)
 }
 
-func newReferenceResolver(cfg config.Config, wagering *usecase.WageringService, log *slog.Logger) *worker.ReferenceResolver {
-	return worker.NewReferenceResolver(wagering, cfg.Reference.PollInterval, log)
+func newReferenceResolver(cfg config.Config, wagering *usecase.WageringService, m *metrics.Metrics, log *slog.Logger) *worker.ReferenceResolver {
+	return worker.NewReferenceResolver(wagering, cfg.Reference.PollInterval, m, log)
 }
 
-func newOutboxPublisher(cfg config.Config, outbox *usecase.OutboxService, log *slog.Logger) *worker.OutboxPublisher {
-	return worker.NewOutboxPublisher(outbox, cfg.Outbox.PollInterval, log)
+func newOutboxPublisher(cfg config.Config, outbox *usecase.OutboxService, reads usecase.Repositories, m *metrics.Metrics, log *slog.Logger) *worker.OutboxPublisher {
+	return worker.NewOutboxPublisher(outbox, reads, cfg.Outbox.PollInterval, m, log)
 }
 
 func runOutboxPublisher(lc fx.Lifecycle, cfg config.Config, log *slog.Logger, p *worker.OutboxPublisher) {

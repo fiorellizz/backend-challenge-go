@@ -3,6 +3,7 @@ package sqsmsg_test
 import (
 	"context"
 	"fmt"
+	"github.com/fiorellizz/backend-challenge-go/internal/platform/metrics"
 	"io"
 	"log/slog"
 	"testing"
@@ -41,7 +42,7 @@ func newHarness(t *testing.T) *harness {
 		t.Fatal(err)
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	consumer := sqsmsg.NewConsumer(nil, config.Config{SQS: config.SQS{VisibilityTimeoutSeconds: 30}}, svc, clock, log)
+	consumer := sqsmsg.NewConsumer(nil, config.Config{SQS: config.SQS{VisibilityTimeoutSeconds: 30}}, svc, clock, metrics.New(), log)
 	return &harness{store: store, consumer: consumer, walletID: w.ID().String()}
 }
 

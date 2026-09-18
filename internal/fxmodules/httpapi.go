@@ -8,6 +8,7 @@ import (
 
 	"github.com/fiorellizz/backend-challenge-go/internal/adapter/httpapi"
 	"github.com/fiorellizz/backend-challenge-go/internal/platform/config"
+	"github.com/fiorellizz/backend-challenge-go/internal/platform/metrics"
 )
 
 // HTTP runs the server on every instance, whatever its roles: health
@@ -16,7 +17,7 @@ import (
 var HTTP = fx.Module("httpapi",
 	fx.Provide(
 		httpapi.NewMux,
-		httpapi.NewServer,
+		newServer,
 		httpapi.NewAuth,
 		httpapi.NewWalletHandler,
 		httpapi.NewWageringHandler,
@@ -24,11 +25,22 @@ var HTTP = fx.Module("httpapi",
 		// "readiness" group by the adapters (PostgreSQL, SQS).
 		fx.Annotate(httpapi.NewHealth, fx.ParamTags(`group:"readiness"`)),
 	),
-	fx.Invoke(registerHealth, registerAPIRoutes, runServer),
+	fx.Invoke(registerHealth, registerMetrics, registerAPIRoutes, runServer),
 )
+
+// newServer wraps the router with the request middleware (correlation id,
+// access log, HTTP metrics) before handing it to the server.
+func newServer(cfg config.Config, mux *http.ServeMux, m *metrics.Metrics, log *slog.Logger) *httpapi.Server {
+	return httpapi.NewServer(cfg, httpapi.Instrument(mux, m, log), log)
+}
 
 func registerHealth(mux *http.ServeMux, h *httpapi.Health) {
 	h.Register(mux)
+}
+
+// registerMetrics exposes /metrics publicly on every instance.
+func registerMetrics(mux *http.ServeMux, m *metrics.Metrics) {
+	mux.Handle("GET /metrics", m.Handler())
 }
 
 // registerAPIRoutes mounts the business endpoints when this instance

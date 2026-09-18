@@ -5,6 +5,7 @@ package sqsmsg_test
 import (
 	"context"
 	"fmt"
+	"github.com/fiorellizz/backend-challenge-go/internal/platform/metrics"
 	"io"
 	"log/slog"
 	"os"
@@ -69,7 +70,7 @@ func newRealStack(t *testing.T) *realStack {
 		t.Fatal(err)
 	}
 	return &realStack{
-		client: client, cfg: cfg, consumer: sqsmsg.NewConsumer(client, cfg, svc, usecase.SystemClock, log),
+		client: client, cfg: cfg, consumer: sqsmsg.NewConsumer(client, cfg, svc, usecase.SystemClock, metrics.New(), log),
 		wallets: wallets, wagering: svc, walletID: w.ID().String(), playerID: playerID,
 	}
 }

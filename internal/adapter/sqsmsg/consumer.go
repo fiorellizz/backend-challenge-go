@@ -16,6 +16,7 @@ import (
 	"github.com/fiorellizz/backend-challenge-go/internal/domain/errs"
 	"github.com/fiorellizz/backend-challenge-go/internal/domain/money"
 	"github.com/fiorellizz/backend-challenge-go/internal/platform/config"
+	"github.com/fiorellizz/backend-challenge-go/internal/platform/metrics"
 	"github.com/fiorellizz/backend-challenge-go/internal/usecase"
 )
 
@@ -47,12 +48,13 @@ type Consumer struct {
 	cfg      config.SQS
 	wagering *usecase.WageringService
 	now      usecase.Clock
+	metrics  *metrics.Metrics
 	log      *slog.Logger
 }
 
 // NewConsumer builds the consumer.
-func NewConsumer(client *sqs.Client, cfg config.Config, wagering *usecase.WageringService, now usecase.Clock, log *slog.Logger) *Consumer {
-	return &Consumer{client: client, cfg: cfg.SQS, wagering: wagering, now: now, log: log.With("component", "sqs-consumer")}
+func NewConsumer(client *sqs.Client, cfg config.Config, wagering *usecase.WageringService, now usecase.Clock, m *metrics.Metrics, log *slog.Logger) *Consumer {
+	return &Consumer{client: client, cfg: cfg.SQS, wagering: wagering, now: now, metrics: m, log: log.With("component", "sqs-consumer")}
 }
 
 // requestEnvelope is the input message format.
@@ -117,6 +119,7 @@ func (c *Consumer) Handle(ctx context.Context, body string) Handled {
 	}
 	hash := sha256.Sum256([]byte(body))
 
+	start := time.Now()
 	result, err := c.wagering.Process(ctx, usecase.ProcessInput{
 		IdempotencyKey: env.Data.IdempotencyKey, ProviderID: env.Data.ProviderID,
 		ExternalTransactionID: env.Data.ExternalTransactionID, PlayerID: env.Data.PlayerID, WalletID: env.Data.WalletID,
@@ -126,8 +129,13 @@ func (c *Consumer) Handle(ctx context.Context, body string) Handled {
 	})
 	switch {
 	case err == nil:
+		tx := result.Transaction
+		c.metrics.ObserveProcessing("sqs", string(tx.Kind()), string(tx.Status()), string(tx.FailureCode()), result.IdempotentReplay, time.Since(start))
 		return Handled{Decision: Ack, MessageID: env.MessageID, Result: result}
-	case errors.Is(err, errs.ErrValidation), errors.Is(err, errs.ErrNotFound), errors.Is(err, errs.ErrConflict):
+	case errors.Is(err, errs.ErrConflict):
+		c.metrics.ConflictsTotal.WithLabelValues("payload").Inc()
+		return Handled{Decision: Reject, Reason: err.Error(), MessageID: env.MessageID}
+	case errors.Is(err, errs.ErrValidation), errors.Is(err, errs.ErrNotFound):
 		return Handled{Decision: Reject, Reason: err.Error(), MessageID: env.MessageID}
 	default:
 		return Handled{Decision: Retry, Reason: err.Error(), MessageID: env.MessageID}
@@ -190,14 +198,18 @@ func (c *Consumer) handleMessage(parent context.Context, m types.Message) {
 
 	switch h.Decision {
 	case Ack:
+		c.metrics.ConsumerMessagesTotal.WithLabelValues("ack").Inc()
 		log.Info("message processed", "idempotentReplay", h.Result.IdempotentReplay)
 	case Reject:
+		c.metrics.ConsumerMessagesTotal.WithLabelValues("reject").Inc()
 		log.Warn("message rejected permanently", "reason", h.Reason)
 		if err := c.deadLetter(ctx, m, h.Reason); err != nil {
 			log.Error("could not move message to dlq; leaving it for redrive", "error", err.Error())
 			return
 		}
+		c.metrics.DLQTotal.Inc()
 	case Retry:
+		c.metrics.ConsumerMessagesTotal.WithLabelValues("retry").Inc()
 		log.Warn("message left for redelivery", "reason", h.Reason)
 		return
 	}

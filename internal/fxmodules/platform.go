@@ -11,13 +11,14 @@ import (
 
 	"github.com/fiorellizz/backend-challenge-go/internal/platform/config"
 	"github.com/fiorellizz/backend-challenge-go/internal/platform/logging"
+	"github.com/fiorellizz/backend-challenge-go/internal/platform/metrics"
 )
 
 // Platform provides the logger and announces the configuration. The
 // config itself is supplied by App because it is loaded before the
 // container exists.
 var Platform = fx.Module("platform",
-	fx.Provide(newLogger),
+	fx.Provide(newLogger, metrics.New),
 	fx.Invoke(announce),
 )
 

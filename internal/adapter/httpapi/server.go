@@ -27,13 +27,14 @@ type Server struct {
 // NewMux returns the router every feature registers its routes on.
 func NewMux() *http.ServeMux { return http.NewServeMux() }
 
-// NewServer builds the server around the shared mux.
-func NewServer(cfg config.Config, mux *http.ServeMux, log *slog.Logger) *Server {
+// NewServer builds the server around the root handler, normally the mux
+// wrapped by Instrument.
+func NewServer(cfg config.Config, handler http.Handler, log *slog.Logger) *Server {
 	return &Server{
 		addr: cfg.HTTPAddr,
 		log:  log.With("component", "http"),
 		http: &http.Server{
-			Handler:           mux,
+			Handler:           handler,
 			ReadHeaderTimeout: 5 * time.Second,
 			ReadTimeout:       10 * time.Second,
 			WriteTimeout:      30 * time.Second,

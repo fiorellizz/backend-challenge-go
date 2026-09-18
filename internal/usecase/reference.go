@@ -23,7 +23,7 @@ import (
 //     and a WagerTransactionRejected event.
 //
 // found is false when nothing was due.
-func (s *WageringService) ResolveNextPendingReference(ctx context.Context) (found bool, err error) {
+func (s *WageringService) ResolveNextPendingReference(ctx context.Context) (outcome ReferenceOutcome, found bool, err error) {
 	now := s.now()
 	err = s.uow.WithinTx(ctx, func(ctx context.Context, r Repositories) error {
 		tx, ok, err := r.Transactions.ClaimNextPendingReference(ctx, now)
@@ -39,13 +39,40 @@ func (s *WageringService) ResolveNextPendingReference(ctx context.Context) (foun
 		_, err = r.Transactions.GetByProviderExternalID(ctx, tx.ProviderID(), tx.ReferenceExternalID())
 		switch {
 		case errors.Is(err, errs.ErrNotFound):
-			return s.retryOrExpire(ctx, r, tx, w, now)
+			if err := s.retryOrExpire(ctx, r, tx, w, now); err != nil {
+				return err
+			}
 		case err != nil:
 			return err
+		default:
+			if err := s.settle(ctx, r, tx, w, now); err != nil {
+				return err
+			}
 		}
-		return s.settle(ctx, r, tx, w, now)
+		outcome = outcomeOf(tx)
+		return nil
 	})
-	return found, err
+	return outcome, found, err
+}
+
+// ReferenceOutcome labels what the worker did with one pending reversal.
+type ReferenceOutcome string
+
+const (
+	ReferenceProcessed ReferenceOutcome = "processed"
+	ReferenceRejected  ReferenceOutcome = "rejected"
+	ReferenceRetried   ReferenceOutcome = "retried"
+)
+
+func outcomeOf(tx *wagering.WagerTransaction) ReferenceOutcome {
+	switch tx.Status() {
+	case wagering.Processed:
+		return ReferenceProcessed
+	case wagering.Rejected, wagering.Failed:
+		return ReferenceRejected
+	default:
+		return ReferenceRetried
+	}
 }
 
 func (s *WageringService) retryOrExpire(ctx context.Context, r Repositories, tx *wagering.WagerTransaction, w *wallet.Wallet, now time.Time) error {

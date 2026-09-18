@@ -29,7 +29,7 @@ func (f *fixture) process(t *testing.T, in usecase.ProcessInput) *wagering.Wager
 
 func (f *fixture) resolveOnce(t *testing.T) bool {
 	t.Helper()
-	found, err := f.wagering.ResolveNextPendingReference(context.Background())
+	_, found, err := f.wagering.ResolveNextPendingReference(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}

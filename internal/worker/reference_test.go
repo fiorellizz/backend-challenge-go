@@ -2,6 +2,7 @@ package worker_test
 
 import (
 	"context"
+	"github.com/fiorellizz/backend-challenge-go/internal/platform/metrics"
 	"io"
 	"log/slog"
 	"testing"
@@ -56,7 +57,7 @@ func TestRunOnceDrainsEveryDueReference(t *testing.T) {
 		}
 	}
 
-	resolver := worker.NewReferenceResolver(svc, time.Millisecond, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	resolver := worker.NewReferenceResolver(svc, time.Millisecond, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	handled, err := resolver.RunOnce(context.Background())
 	if err != nil || handled != 0 {

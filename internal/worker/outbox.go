@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/fiorellizz/backend-challenge-go/internal/platform/metrics"
 	"github.com/fiorellizz/backend-challenge-go/internal/usecase"
 )
 
@@ -13,13 +14,15 @@ import (
 // interval, so an idle instance costs one query per interval.
 type OutboxPublisher struct {
 	outbox   *usecase.OutboxService
+	reads    usecase.Repositories
 	interval time.Duration
+	metrics  *metrics.Metrics
 	log      *slog.Logger
 }
 
 // NewOutboxPublisher builds the worker.
-func NewOutboxPublisher(outbox *usecase.OutboxService, interval time.Duration, log *slog.Logger) *OutboxPublisher {
-	return &OutboxPublisher{outbox: outbox, interval: interval, log: log.With("component", "outbox-publisher")}
+func NewOutboxPublisher(outbox *usecase.OutboxService, reads usecase.Repositories, interval time.Duration, m *metrics.Metrics, log *slog.Logger) *OutboxPublisher {
+	return &OutboxPublisher{outbox: outbox, reads: reads, interval: interval, metrics: m, log: log.With("component", "outbox-publisher")}
 }
 
 // Run publishes until ctx is cancelled. A batch in progress completes (or
@@ -32,16 +35,32 @@ func (p *OutboxPublisher) Run(ctx context.Context) {
 		if err != nil && ctx.Err() == nil {
 			p.log.Warn("outbox batch failed; will retry", "error", err.Error())
 		}
+		p.metrics.OutboxPublishedTotal.Add(float64(outcome.Published))
+		p.metrics.OutboxFailedTotal.Add(float64(outcome.Failed))
 		if err == nil && outcome.Claimed > 0 && outcome.Failed == 0 {
 			// More work is likely waiting; do not sleep.
 			if ctx.Err() == nil {
 				continue
 			}
 		}
+		p.observeLag(ctx)
 		select {
 		case <-ctx.Done():
 			return
 		case <-time.After(p.interval):
 		}
 	}
+}
+
+// observeLag refreshes the gauge whenever the loop goes idle, so the
+// metric reflects events other instances may be failing to publish too.
+func (p *OutboxPublisher) observeLag(ctx context.Context) {
+	if ctx.Err() != nil {
+		return
+	}
+	lag, err := p.outbox.Lag(ctx, p.reads)
+	if err != nil {
+		return
+	}
+	p.metrics.OutboxLagSeconds.Set(lag.Seconds())
 }

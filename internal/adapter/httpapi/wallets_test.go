@@ -13,6 +13,7 @@ import (
 
 	"github.com/fiorellizz/backend-challenge-go/internal/adapter/httpapi"
 	"github.com/fiorellizz/backend-challenge-go/internal/domain/errs"
+	wageringdomain "github.com/fiorellizz/backend-challenge-go/internal/domain/wagering"
 	"github.com/fiorellizz/backend-challenge-go/internal/usecase"
 	"github.com/fiorellizz/backend-challenge-go/internal/usecase/usecasetest"
 )
@@ -28,9 +29,15 @@ func newAPI(t *testing.T) *api {
 	t.Helper()
 	store := usecasetest.NewStore()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	wallets := usecase.NewWalletService(store, store.Repos(), func() time.Time { return time.Date(2026, 9, 18, 9, 0, 0, 0, time.UTC) })
+	clock := func() time.Time { return time.Date(2026, 9, 18, 9, 0, 0, 0, time.UTC) }
+	wallets := usecase.NewWalletService(store, store.Repos(), clock)
+	wagering, err := usecase.NewWageringService(store, store.Repos(), clock, wageringdomain.ReferencePolicy{BaseBackoff: time.Second, MaxAttempts: 3, TTL: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
 	mux := httpapi.NewMux()
 	httpapi.NewWalletHandler(wallets, log).Register(mux)
+	httpapi.NewWageringHandler(wagering, log).Register(mux)
 	ts := httptest.NewServer(mux)
 	t.Cleanup(ts.Close)
 	return &api{ts: ts, store: store}

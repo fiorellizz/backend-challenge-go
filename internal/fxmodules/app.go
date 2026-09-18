@@ -28,6 +28,7 @@ func App(cfg config.Config) []fx.Option {
 		fx.StopTimeout(cfg.ShutdownTimeout),
 		Platform,
 		Postgres,
+		UseCases,
 		HTTP,
 	}
 }

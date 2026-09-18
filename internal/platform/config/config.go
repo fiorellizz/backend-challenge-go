@@ -78,7 +78,8 @@ type SQS struct {
 }
 
 type OIDC struct {
-	IssuerURL     string
+	IssuerURL     string // value expected in the token's iss claim
+	DiscoveryURL  string // where to fetch .well-known and JWKS; defaults to IssuerURL
 	Audience      string
 	InternalRole  string
 	ProviderRole  string
@@ -130,6 +131,7 @@ func Load(getenv func(string) string) (Config, error) {
 		},
 		OIDC: OIDC{
 			IssuerURL:     r.str("OIDC_ISSUER_URL", ""),
+			DiscoveryURL:  r.str("OIDC_DISCOVERY_URL", r.str("OIDC_ISSUER_URL", "")),
 			Audience:      r.str("OIDC_AUDIENCE", "wager-api"),
 			InternalRole:  r.str("OIDC_INTERNAL_ROLE", "internal-service"),
 			ProviderRole:  r.str("OIDC_PROVIDER_ROLE", "provider"),

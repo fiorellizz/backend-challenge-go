@@ -32,11 +32,11 @@ func NewWalletHandler(wallets *usecase.WalletService, log *slog.Logger) *WalletH
 	return &WalletHandler{wallets: wallets, log: log.With("component", "httpapi")}
 }
 
-// Register mounts the wallet routes.
-func (h *WalletHandler) Register(mux *http.ServeMux) {
-	mux.HandleFunc("POST /wallets", h.open)
-	mux.HandleFunc("GET /wallets/{walletId}", h.get)
-	mux.HandleFunc("GET /wallets/{walletId}/ledger", h.ledger)
+// Register mounts the wallet routes. All of them are internal-only.
+func (h *WalletHandler) Register(mux *http.ServeMux, guard *Auth) {
+	mux.HandleFunc("POST /wallets", guard.Internal(h.open))
+	mux.HandleFunc("GET /wallets/{walletId}", guard.Internal(h.get))
+	mux.HandleFunc("GET /wallets/{walletId}/ledger", guard.Internal(h.ledger))
 }
 
 type openWalletRequest struct {

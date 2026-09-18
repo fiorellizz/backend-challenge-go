@@ -10,12 +10,14 @@ import (
 	"github.com/fiorellizz/backend-challenge-go/internal/domain/id"
 	"github.com/fiorellizz/backend-challenge-go/internal/domain/money"
 	"github.com/fiorellizz/backend-challenge-go/internal/domain/wagering"
+	"github.com/fiorellizz/backend-challenge-go/internal/platform/auth"
 	"github.com/fiorellizz/backend-challenge-go/internal/usecase"
 )
 
 // WageringHandler serves the provider-facing operation endpoints.
 type WageringHandler struct {
 	wagering *usecase.WageringService
+	guard    *Auth
 	log      *slog.Logger
 }
 
@@ -24,11 +26,15 @@ func NewWageringHandler(wagering *usecase.WageringService, log *slog.Logger) *Wa
 	return &WageringHandler{wagering: wagering, log: log.With("component", "httpapi")}
 }
 
-// Register mounts the wagering routes.
-func (h *WageringHandler) Register(mux *http.ServeMux) {
-	mux.HandleFunc("POST /wagering/transactions", h.submit)
-	mux.HandleFunc("GET /wagering/transactions/{transactionId}", h.getByID)
-	mux.HandleFunc("GET /providers/{providerId}/wagering/transactions/{externalTransactionId}", h.getByProvider)
+// Register mounts the wagering routes. Submission and the provider query
+// need a provider token bound to the providerId in the request; the query
+// by internal id is open to both roles, with providers restricted to their
+// own transactions.
+func (h *WageringHandler) Register(mux *http.ServeMux, guard *Auth) {
+	h.guard = guard
+	mux.HandleFunc("POST /wagering/transactions", guard.Provider(h.submit))
+	mux.HandleFunc("GET /wagering/transactions/{transactionId}", guard.Any(h.getByID))
+	mux.HandleFunc("GET /providers/{providerId}/wagering/transactions/{externalTransactionId}", guard.Provider(h.getByProvider))
 }
 
 type submitRequest struct {
@@ -99,6 +105,12 @@ func (h *WageringHandler) submit(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, h.log, err)
 		return
 	}
+	// A provider may only submit operations under its own id; the token,
+	// not the body, is the source of truth.
+	if err := SameProvider(r, req.ProviderID); err != nil {
+		writeError(w, r, h.log, err)
+		return
+	}
 
 	res, err := h.wagering.Process(r.Context(), usecase.ProcessInput{
 		IdempotencyKey: key, ProviderID: req.ProviderID, ExternalTransactionID: req.ExternalTransactionID,
@@ -139,10 +151,20 @@ func (h *WageringHandler) getByID(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, h.log, err)
 		return
 	}
+	// A provider sees only its own transactions; anything else looks
+	// absent so the id space of other providers is not revealed.
+	if p, _ := auth.FromContext(r.Context()); !h.guard.IsInternal(p) && tx.ProviderID() != p.ProviderID {
+		writeError(w, r, h.log, fmt.Errorf("transaction: %w", errs.ErrNotFound))
+		return
+	}
 	writeJSON(w, http.StatusOK, toTransactionResponse(tx))
 }
 
 func (h *WageringHandler) getByProvider(w http.ResponseWriter, r *http.Request) {
+	if err := SameProvider(r, r.PathValue("providerId")); err != nil {
+		writeError(w, r, h.log, err)
+		return
+	}
 	tx, err := h.wagering.GetProviderTransaction(r.Context(), r.PathValue("providerId"), r.PathValue("externalTransactionId"))
 	if err != nil {
 		writeError(w, r, h.log, err)

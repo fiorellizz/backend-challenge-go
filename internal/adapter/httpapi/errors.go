@@ -8,6 +8,7 @@ import (
 
 	"github.com/fiorellizz/backend-challenge-go/internal/domain/errs"
 	"github.com/fiorellizz/backend-challenge-go/internal/domain/wagering"
+	"github.com/fiorellizz/backend-challenge-go/internal/platform/auth"
 )
 
 // Error contract. Every non-2xx response has this shape so clients can
@@ -42,6 +43,10 @@ func writeError(w http.ResponseWriter, r *http.Request, log *slog.Logger, err er
 
 func classify(err error) (int, string) {
 	switch {
+	case errors.Is(err, auth.ErrUnauthenticated):
+		return http.StatusUnauthorized, "UNAUTHENTICATED"
+	case errors.Is(err, ErrForbidden):
+		return http.StatusForbidden, "FORBIDDEN"
 	case errors.Is(err, errs.ErrValidation):
 		return http.StatusBadRequest, "VALIDATION_ERROR"
 	case errors.Is(err, errs.ErrNotFound):

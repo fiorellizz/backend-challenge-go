@@ -17,6 +17,7 @@ var HTTP = fx.Module("httpapi",
 	fx.Provide(
 		httpapi.NewMux,
 		httpapi.NewServer,
+		httpapi.NewAuth,
 		httpapi.NewWalletHandler,
 		httpapi.NewWageringHandler,
 		// NewHealth receives every ReadinessCheck contributed to the
@@ -32,13 +33,13 @@ func registerHealth(mux *http.ServeMux, h *httpapi.Health) {
 
 // registerAPIRoutes mounts the business endpoints when this instance
 // serves the API. Consumer-only and outbox-only instances skip them.
-func registerAPIRoutes(cfg config.Config, log *slog.Logger, mux *http.ServeMux, wallets *httpapi.WalletHandler, wagering *httpapi.WageringHandler) {
+func registerAPIRoutes(cfg config.Config, log *slog.Logger, mux *http.ServeMux, guard *httpapi.Auth, wallets *httpapi.WalletHandler, wagering *httpapi.WageringHandler) {
 	if !cfg.Roles.Has(config.RoleAPI) {
 		log.Info("api role disabled; business routes not mounted")
 		return
 	}
-	wallets.Register(mux)
-	wagering.Register(mux)
+	wallets.Register(mux, guard)
+	wagering.Register(mux, guard)
 }
 
 // runServer ties the server to the container lifecycle. Fx stops hooks in

@@ -2,6 +2,7 @@ package httpapi_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -14,6 +15,8 @@ import (
 	"github.com/fiorellizz/backend-challenge-go/internal/adapter/httpapi"
 	"github.com/fiorellizz/backend-challenge-go/internal/domain/errs"
 	wageringdomain "github.com/fiorellizz/backend-challenge-go/internal/domain/wagering"
+	"github.com/fiorellizz/backend-challenge-go/internal/platform/auth"
+	"github.com/fiorellizz/backend-challenge-go/internal/platform/config"
 	"github.com/fiorellizz/backend-challenge-go/internal/usecase"
 	"github.com/fiorellizz/backend-challenge-go/internal/usecase/usecasetest"
 )
@@ -23,6 +26,7 @@ const playerID = "0192f28f-5dc0-7d58-bdb2-814ad6a0f4a1"
 type api struct {
 	ts    *httptest.Server
 	store *usecasetest.Store
+	token string // bearer token sent by do(); "" sends none
 }
 
 func newAPI(t *testing.T) *api {
@@ -35,12 +39,42 @@ func newAPI(t *testing.T) *api {
 	if err != nil {
 		t.Fatal(err)
 	}
+	cfg := config.Config{OIDC: config.OIDC{InternalRole: "internal-service", ProviderRole: "provider"}}
+	guard := httpapi.NewAuth(fakeVerifier{}, cfg, log)
 	mux := httpapi.NewMux()
-	httpapi.NewWalletHandler(wallets, log).Register(mux)
-	httpapi.NewWageringHandler(wagering, log).Register(mux)
+	httpapi.NewWalletHandler(wallets, log).Register(mux, guard)
+	httpapi.NewWageringHandler(wagering, log).Register(mux, guard)
 	ts := httptest.NewServer(mux)
 	t.Cleanup(ts.Close)
-	return &api{ts: ts, store: store}
+	return &api{ts: ts, store: store, token: tokenInternal}
+}
+
+// Tokens understood by fakeVerifier. Tests switch a.token to act as a
+// different identity.
+const (
+	tokenInternal     = "internal-token"
+	tokenProviderA    = "provider-a-token"
+	tokenProviderB    = "provider-b-token"
+	tokenNoRole       = "no-role-token"
+	tokenProviderNoID = "provider-without-claim"
+)
+
+type fakeVerifier struct{}
+
+func (fakeVerifier) Verify(_ context.Context, raw string) (auth.Principal, error) {
+	switch raw {
+	case tokenInternal:
+		return auth.Principal{Subject: "svc", ClientID: "wallet-internal", Roles: []string{"internal-service"}}, nil
+	case tokenProviderA:
+		return auth.Principal{Subject: "a", ClientID: "provider-a", Roles: []string{"provider"}, ProviderID: "provider-a"}, nil
+	case tokenProviderB:
+		return auth.Principal{Subject: "b", ClientID: "provider-b", Roles: []string{"provider"}, ProviderID: "provider-b"}, nil
+	case tokenNoRole:
+		return auth.Principal{Subject: "n", ClientID: "unauthorized-client"}, nil
+	case tokenProviderNoID:
+		return auth.Principal{Subject: "p", Roles: []string{"provider"}}, nil
+	}
+	return auth.Principal{}, auth.ErrUnauthenticated
 }
 
 func (a *api) do(t *testing.T, method, path, body string, headers ...string) (int, map[string]any) {
@@ -50,6 +84,9 @@ func (a *api) do(t *testing.T, method, path, body string, headers ...string) (in
 		t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if a.token != "" {
+		req.Header.Set("Authorization", "Bearer "+a.token)
+	}
 	for i := 0; i+1 < len(headers); i += 2 {
 		req.Header.Set(headers[i], headers[i+1])
 	}

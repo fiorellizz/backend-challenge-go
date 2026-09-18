@@ -16,9 +16,15 @@ func reversalBody(walletID, external, kind, reference, amount string) string {
 		external, playerID, walletID, kind, amount, reference)
 }
 
+// submit acts as provider-a, then restores the previous identity.
 func (a *api) submit(t *testing.T, key, body string) (int, map[string]any) {
 	t.Helper()
-	return a.do(t, "POST", "/wagering/transactions", body, "Idempotency-Key", key)
+	return a.as(tokenProviderA).do(t, "POST", "/wagering/transactions", body, "Idempotency-Key", key)
+}
+
+// as returns a view of the API that authenticates with the given token.
+func (a *api) as(token string) *api {
+	return &api{ts: a.ts, store: a.store, token: token}
 }
 
 func TestSubmitBetProcessed(t *testing.T) {
@@ -41,11 +47,11 @@ func TestSubmitBetProcessed(t *testing.T) {
 	if status != http.StatusOK || body["status"] != "PROCESSED" || body["kind"] != "BET" || body["walletVersion"] != float64(2) || body["externalTransactionId"] != "transaction-123" {
 		t.Fatalf("get by id: %d %v", status, body)
 	}
-	status, body = a.do(t, "GET", "/providers/provider-a/wagering/transactions/transaction-123", "")
+	status, body = a.as(tokenProviderA).do(t, "GET", "/providers/provider-a/wagering/transactions/transaction-123", "")
 	if status != http.StatusOK || body["transactionId"] != txID {
 		t.Fatalf("get by provider: %d %v", status, body)
 	}
-	status, body = a.do(t, "GET", "/providers/provider-b/wagering/transactions/transaction-123", "")
+	status, body = a.as(tokenProviderB).do(t, "GET", "/providers/provider-b/wagering/transactions/transaction-123", "")
 	if status != http.StatusNotFound {
 		t.Fatalf("other provider must not see it: %d %v", status, body)
 	}
@@ -72,7 +78,7 @@ func TestSubmitReplayAndConflicts(t *testing.T) {
 		t.Fatalf("same operation other key: %d %v", status, res)
 	}
 
-	status, res = a.do(t, "POST", "/wagering/transactions", body)
+	status, res = a.as(tokenProviderA).do(t, "POST", "/wagering/transactions", body)
 	if status != http.StatusBadRequest || errorCode(res) != "VALIDATION_ERROR" {
 		t.Fatalf("missing Idempotency-Key: %d %v", status, res)
 	}

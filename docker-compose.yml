@@ -24,7 +24,10 @@ x-app-env: &app-env
   SQS_WAIT_TIME_SECONDS: "10"
   SQS_VISIBILITY_TIMEOUT_SECONDS: "30"
 
-  OIDC_ISSUER_URL: http://keycloak:8080/realms/wager
+  # Issuer esperado nos tokens (ver KC_HOSTNAME) e endereco interno para
+  # discovery e JWKS.
+  OIDC_ISSUER_URL: http://localhost:8080/realms/wager
+  OIDC_DISCOVERY_URL: http://keycloak:8080/realms/wager
   OIDC_AUDIENCE: wager-api
   OIDC_INTERNAL_ROLE: internal-service
   OIDC_PROVIDER_ROLE: provider
@@ -108,6 +111,12 @@ services:
       KC_HEALTH_ENABLED: "true"
       KC_METRICS_ENABLED: "true"
       KC_HTTP_ENABLED: "true"
+      # O issuer dos tokens e sempre http://localhost:8080/realms/wager, seja
+      # o token pedido do host (testes, curl) ou de dentro da rede. Com o
+      # backchannel dinamico, o discovery consultado via keycloak:8080 devolve
+      # o JWKS em keycloak:8080, alcancavel pelas instancias da aplicacao.
+      KC_HOSTNAME: http://localhost:8080
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
     ports:
       - "8080:8080"
     volumes:

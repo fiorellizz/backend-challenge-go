@@ -31,7 +31,7 @@ func newFixture(t *testing.T, balance string) *fixture {
 	t.Helper()
 	f := &fixture{store: usecasetest.NewStore(), now: fixedNow}
 	clock := func() time.Time { return f.now }
-	f.wallets = usecase.NewWalletService(f.store, f.store.Repos(), clock)
+	f.wallets = usecase.NewWalletService(f.store, f.store.Repos(), clock, quietLog())
 	svc, err := usecase.NewWageringService(f.store, f.store.Repos(), clock, testPolicy)
 	if err != nil {
 		t.Fatal(err)

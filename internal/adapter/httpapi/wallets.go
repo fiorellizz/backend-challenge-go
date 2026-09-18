@@ -37,6 +37,31 @@ func (h *WalletHandler) Register(mux *http.ServeMux, guard *Auth) {
 	mux.HandleFunc("POST /wallets", guard.Internal(h.open))
 	mux.HandleFunc("GET /wallets/{walletId}", guard.Internal(h.get))
 	mux.HandleFunc("GET /wallets/{walletId}/ledger", guard.Internal(h.ledger))
+	mux.HandleFunc("POST /wallets/{walletId}/reconciliation", guard.Internal(h.reconcile))
+}
+
+type reconciliationResponse struct {
+	WalletID          string      `json:"walletId"`
+	StoredBalance     money.Money `json:"storedBalance"`
+	CalculatedBalance money.Money `json:"calculatedBalance"`
+	Difference        money.Money `json:"difference"`
+	Consistent        bool        `json:"consistent"`
+	CheckedEntries    int64       `json:"checkedEntries"`
+}
+
+// reconcile rebuilds the balance from the ledger and reports the
+// comparison. It changes nothing; a divergence is reported in the body,
+// the logs and the reconciliation metric.
+func (h *WalletHandler) reconcile(w http.ResponseWriter, r *http.Request) {
+	rec, err := h.wallets.Reconcile(r.Context(), id.WalletID(r.PathValue("walletId")))
+	if err != nil {
+		writeError(w, r, h.log, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, reconciliationResponse{
+		WalletID: rec.WalletID.String(), StoredBalance: rec.StoredBalance, CalculatedBalance: rec.CalculatedBalance,
+		Difference: rec.Difference, Consistent: rec.Consistent, CheckedEntries: rec.CheckedEntries,
+	})
 }
 
 type openWalletRequest struct {

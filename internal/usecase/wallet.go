@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"log/slog"
 	"strconv"
 
 	"github.com/fiorellizz/backend-challenge-go/internal/domain/errs"
@@ -14,16 +15,18 @@ import (
 	"github.com/fiorellizz/backend-challenge-go/internal/domain/wallet"
 )
 
-// WalletService opens and reads wallets.
+// WalletService opens, reads and reconciles wallets.
 type WalletService struct {
-	uow   UnitOfWork
-	reads Repositories
-	now   Clock
+	uow          UnitOfWork
+	reads        Repositories
+	now          Clock
+	log          *slog.Logger
+	onDivergence DivergenceObserver
 }
 
 // NewWalletService wires the service to its ports.
-func NewWalletService(uow UnitOfWork, reads Repositories, now Clock) *WalletService {
-	return &WalletService{uow: uow, reads: reads, now: now}
+func NewWalletService(uow UnitOfWork, reads Repositories, now Clock, log *slog.Logger) *WalletService {
+	return &WalletService{uow: uow, reads: reads, now: now, log: log.With("component", "wallet")}
 }
 
 // OpenWalletInput is the internal request to create a wallet.

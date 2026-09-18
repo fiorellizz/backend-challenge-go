@@ -55,8 +55,9 @@ func newRealStack(t *testing.T) *realStack {
 	if err != nil {
 		t.Fatal(err)
 	}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	uow, reads := postgres.NewUnitOfWork(pool), postgres.NewRepositories(pool)
-	wallets := usecase.NewWalletService(uow, reads, usecase.SystemClock)
+	wallets := usecase.NewWalletService(uow, reads, usecase.SystemClock, log)
 	svc, err := usecase.NewWageringService(uow, reads, usecase.SystemClock, wagering.ReferencePolicy{BaseBackoff: time.Second, MaxAttempts: 3, TTL: time.Minute})
 	if err != nil {
 		t.Fatal(err)
@@ -67,7 +68,6 @@ func newRealStack(t *testing.T) *realStack {
 	if err != nil {
 		t.Fatal(err)
 	}
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	return &realStack{
 		client: client, cfg: cfg, consumer: sqsmsg.NewConsumer(client, cfg, svc, usecase.SystemClock, log),
 		wallets: wallets, wagering: svc, walletID: w.ID().String(), playerID: playerID,

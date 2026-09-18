@@ -3,6 +3,8 @@ package usecase_test
 import (
 	"context"
 	"errors"
+	"io"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -32,7 +34,7 @@ func brl(t *testing.T, amount string) money.Money {
 }
 
 func walletService(store *usecasetest.Store) *usecase.WalletService {
-	return usecase.NewWalletService(store, store.Repos(), clock)
+	return usecase.NewWalletService(store, store.Repos(), clock, quietLog())
 }
 
 func TestOpenWalletWithInitialBalanceCommitsEverythingTogether(t *testing.T) {
@@ -241,3 +243,5 @@ func padHex(n int) string {
 	}
 	return string(out)
 }
+
+func quietLog() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }

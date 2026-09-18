@@ -34,7 +34,7 @@ func newAPI(t *testing.T) *api {
 	store := usecasetest.NewStore()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	clock := func() time.Time { return time.Date(2026, 9, 18, 9, 0, 0, 0, time.UTC) }
-	wallets := usecase.NewWalletService(store, store.Repos(), clock)
+	wallets := usecase.NewWalletService(store, store.Repos(), clock, quietLog())
 	wagering, err := usecase.NewWageringService(store, store.Repos(), clock, wageringdomain.ReferencePolicy{BaseBackoff: time.Second, MaxAttempts: 3, TTL: time.Minute})
 	if err != nil {
 		t.Fatal(err)
@@ -241,5 +241,30 @@ func TestErrorBodyShape(t *testing.T) {
 	e := body["error"].(map[string]any)
 	if e["code"] != "NOT_FOUND" || !strings.Contains(e["message"].(string), "not found") {
 		t.Fatalf("error = %v", e)
+	}
+}
+
+func quietLog() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
+
+func TestReconciliationEndpoint(t *testing.T) {
+	a := newAPI(t)
+	walletID := a.openWallet(t, "1000.00")
+	a.submit(t, "k1", betBody(walletID, "tx-1", "BET", "25.00"))
+
+	status, body := a.do(t, "POST", "/wallets/"+walletID+"/reconciliation", "")
+	if status != http.StatusOK {
+		t.Fatalf("status = %d %v", status, body)
+	}
+	if body["walletId"] != walletID || body["consistent"] != true || body["checkedEntries"] != float64(2) ||
+		body["storedBalance"].(map[string]any)["amount"] != "975.00" ||
+		body["calculatedBalance"].(map[string]any)["amount"] != "975.00" ||
+		body["difference"].(map[string]any)["amount"] != "0.00" {
+		t.Fatalf("body = %v", body)
+	}
+	if status, _ := a.as(tokenProviderA).do(t, "POST", "/wallets/"+walletID+"/reconciliation", ""); status != http.StatusForbidden {
+		t.Errorf("provider on reconciliation: %d", status)
+	}
+	if status, _ := a.do(t, "POST", "/wallets/0192f291-0000-7000-8000-000000000000/reconciliation", ""); status != http.StatusNotFound {
+		t.Errorf("missing wallet: %d", status)
 	}
 }

@@ -30,7 +30,7 @@ func newHarness(t *testing.T) *harness {
 	t.Helper()
 	store := usecasetest.NewStore()
 	clock := func() time.Time { return time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC) }
-	wallets := usecase.NewWalletService(store, store.Repos(), clock)
+	wallets := usecase.NewWalletService(store, store.Repos(), clock, quietLog())
 	svc, err := usecase.NewWageringService(store, store.Repos(), clock, wagering.ReferencePolicy{BaseBackoff: time.Second, MaxAttempts: 3, TTL: time.Minute})
 	if err != nil {
 		t.Fatal(err)
@@ -154,3 +154,5 @@ func TestPendingReferenceIsAcked(t *testing.T) {
 		t.Fatalf("pending reference must complete the inbox row; the worker continues")
 	}
 }
+
+func quietLog() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }

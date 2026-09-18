@@ -22,7 +22,7 @@ func TestRunOnceDrainsEveryDueReference(t *testing.T) {
 	now := time.Date(2026, 9, 18, 10, 0, 0, 0, time.UTC)
 	clock := func() time.Time { return now }
 	policy := wagering.ReferencePolicy{BaseBackoff: time.Second, MaxAttempts: 5, TTL: time.Minute}
-	wallets := usecase.NewWalletService(store, store.Repos(), clock)
+	wallets := usecase.NewWalletService(store, store.Repos(), clock, quietLog())
 	svc, err := usecase.NewWageringService(store, store.Repos(), clock, policy)
 	if err != nil {
 		t.Fatal(err)
@@ -93,3 +93,5 @@ func TestRunOnceDrainsEveryDueReference(t *testing.T) {
 		t.Fatal("Run did not stop after cancellation")
 	}
 }
+
+func quietLog() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }

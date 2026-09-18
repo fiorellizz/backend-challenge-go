@@ -1,9 +1,12 @@
+//go:build integration
+
 package fxmodules_test
 
 import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"os"
 	"testing"
 
 	"go.uber.org/fx"
@@ -16,10 +19,14 @@ import (
 
 func testConfig(t *testing.T) config.Config {
 	t.Helper()
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		t.Skip("DATABASE_URL not set")
+	}
 	env := map[string]string{
 		"HTTP_ADDR":            "127.0.0.1:0",
 		"LOG_LEVEL":            "error",
-		"DATABASE_URL":         "postgres://wager:wager@localhost:5433/wager?sslmode=disable",
+		"DATABASE_URL":         dbURL,
 		"SQS_WAGER_QUEUE_URL":  "http://localhost:4566/000000000000/wager-transactions.fifo",
 		"SQS_WAGER_DLQ_URL":    "http://localhost:4566/000000000000/wager-transactions-dlq.fifo",
 		"SQS_EVENTS_QUEUE_URL": "http://localhost:4566/000000000000/wager-events.fifo",
@@ -63,9 +70,8 @@ func TestAppStartsServesHealthAndStops(t *testing.T) {
 	if err := json.Unmarshal(body, &ready); err != nil {
 		t.Fatalf("ready body %s: %v", body, err)
 	}
-	// No adapter contributes a readiness check yet, so the group is empty
-	// and the endpoint reports ready.
-	if res.StatusCode != http.StatusOK || ready.Status != "ready" || len(ready.Checks) != 0 {
+	// Each adapter contributes its check through the "readiness" group.
+	if res.StatusCode != http.StatusOK || ready.Status != "ready" || ready.Checks["postgres"] != "ok" {
 		t.Fatalf("ready = %d %s", res.StatusCode, body)
 	}
 }

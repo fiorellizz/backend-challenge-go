@@ -128,13 +128,23 @@ test: ## Testes unitarios (sem infraestrutura)
 race: ## Testes com detector de corrida
 	go test -race ./... -count=1
 
+# Variaveis que os testes de integracao usam para alcancar a infra do compose
+# a partir do host. Sobrescreva-as para apontar para outro ambiente.
+INTEGRATION_ENV := DATABASE_URL="$(DB_URL)" \
+	AWS_ENDPOINT_URL=http://localhost:4566 AWS_REGION=us-east-1 \
+	AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test \
+	SQS_WAGER_QUEUE_URL=http://localhost:4566/000000000000/wager-transactions.fifo \
+	SQS_WAGER_DLQ_URL=http://localhost:4566/000000000000/wager-transactions-dlq.fifo \
+	SQS_EVENTS_QUEUE_URL=http://localhost:4566/000000000000/wager-events.fifo \
+	OIDC_ISSUER_URL=$(KC_URL)/realms/$(KC_REALM)
+
 .PHONY: test-integration
-test-integration: ## Testes de integracao com containers reais
-	go test -tags=integration ./test/integration/... -count=1 -timeout=15m -v
+test-integration: ## Testes de integracao com containers reais (make infra antes)
+	$(INTEGRATION_ENV) go test -tags=integration ./internal/... ./test/integration/... -count=1 -timeout=15m -v
 
 .PHONY: test-integration-race
 test-integration-race: ## Integracao com detector de corrida
-	go test -race -tags=integration ./test/integration/... -count=1 -timeout=20m
+	$(INTEGRATION_ENV) go test -race -tags=integration ./internal/... ./test/integration/... -count=1 -timeout=20m
 
 .PHONY: cover
 cover: ## Relatorio de cobertura em coverage.html

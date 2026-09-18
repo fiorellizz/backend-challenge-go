@@ -12,16 +12,29 @@ import (
 	"github.com/fiorellizz/backend-challenge-go/internal/worker"
 )
 
-// Workers registers the background loops according to the instance roles.
-// The reference resolver belongs to the "consumer" role: it is the
-// background half of processing, alongside the SQS consumer.
+// Workers registers the background loops according to the instance roles:
+// the outbox publisher under "outbox"; the reference resolver under
+// "consumer", as the background half of processing alongside the SQS
+// consumer.
 var Workers = fx.Module("workers",
-	fx.Provide(newReferenceResolver),
-	fx.Invoke(runReferenceResolver),
+	fx.Provide(newReferenceResolver, newOutboxPublisher),
+	fx.Invoke(runReferenceResolver, runOutboxPublisher),
 )
 
 func newReferenceResolver(cfg config.Config, wagering *usecase.WageringService, log *slog.Logger) *worker.ReferenceResolver {
 	return worker.NewReferenceResolver(wagering, cfg.Reference.PollInterval, log)
+}
+
+func newOutboxPublisher(cfg config.Config, outbox *usecase.OutboxService, log *slog.Logger) *worker.OutboxPublisher {
+	return worker.NewOutboxPublisher(outbox, cfg.Outbox.PollInterval, log)
+}
+
+func runOutboxPublisher(lc fx.Lifecycle, cfg config.Config, log *slog.Logger, p *worker.OutboxPublisher) {
+	if !cfg.Roles.Has(config.RoleOutbox) {
+		log.Info("outbox role disabled; outbox publisher not started")
+		return
+	}
+	runLoop(lc, "outbox-publisher", p.Run, log)
 }
 
 func runReferenceResolver(lc fx.Lifecycle, cfg config.Config, log *slog.Logger, r *worker.ReferenceResolver) {

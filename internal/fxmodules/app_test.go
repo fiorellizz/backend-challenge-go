@@ -71,8 +71,13 @@ func TestAppStartsServesHealthAndStops(t *testing.T) {
 		t.Fatalf("ready body %s: %v", body, err)
 	}
 	// Each adapter contributes its check through the "readiness" group.
-	if res.StatusCode != http.StatusOK || ready.Status != "ready" || ready.Checks["postgres"] != "ok" {
+	if res.StatusCode != http.StatusOK || ready.Status != "ready" {
 		t.Fatalf("ready = %d %s", res.StatusCode, body)
+	}
+	for _, dep := range []string{"postgres", "sqs", "oidc"} {
+		if ready.Checks[dep] != "ok" {
+			t.Errorf("readiness check %s = %q", dep, ready.Checks[dep])
+		}
 	}
 }
 

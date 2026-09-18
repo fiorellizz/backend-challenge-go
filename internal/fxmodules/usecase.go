@@ -16,6 +16,7 @@ var UseCases = fx.Module("usecase",
 		newReferencePolicy,
 		usecase.NewWalletService,
 		usecase.NewWageringService,
+		newOutboxService,
 	),
 )
 

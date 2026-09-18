@@ -129,3 +129,10 @@ type OutboxRepository interface {
 	// been waiting, or zero when nothing is pending.
 	OldestPendingAge(ctx context.Context, now time.Time) (time.Duration, error)
 }
+
+// EventPublisher delivers one outbox record to the integration channel.
+// It must be idempotent on the receiving side: the same EventID may be
+// published more than once after a crash between publish and commit.
+type EventPublisher interface {
+	Publish(ctx context.Context, rec OutboxRecord) error
+}

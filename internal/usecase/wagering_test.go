@@ -24,21 +24,25 @@ type fixture struct {
 	wallets  *usecase.WalletService
 	wagering *usecase.WageringService
 	walletID id.WalletID
+	now      time.Time // advanced by tests to move through backoff windows
 }
 
 func newFixture(t *testing.T, balance string) *fixture {
 	t.Helper()
-	store := usecasetest.NewStore()
-	wallets := usecase.NewWalletService(store, store.Repos(), clock)
-	svc, err := usecase.NewWageringService(store, store.Repos(), clock, testPolicy)
+	f := &fixture{store: usecasetest.NewStore(), now: fixedNow}
+	clock := func() time.Time { return f.now }
+	f.wallets = usecase.NewWalletService(f.store, f.store.Repos(), clock)
+	svc, err := usecase.NewWageringService(f.store, f.store.Repos(), clock, testPolicy)
 	if err != nil {
 		t.Fatal(err)
 	}
-	w, err := wallets.Open(context.Background(), usecase.OpenWalletInput{PlayerID: playerID, InitialBalance: brl(t, balance)})
+	f.wagering = svc
+	w, err := f.wallets.Open(context.Background(), usecase.OpenWalletInput{PlayerID: playerID, InitialBalance: brl(t, balance)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &fixture{store: store, wallets: wallets, wagering: svc, walletID: w.ID()}
+	f.walletID = w.ID()
+	return f
 }
 
 func (f *fixture) input(t *testing.T, kind, external, amount string) usecase.ProcessInput {

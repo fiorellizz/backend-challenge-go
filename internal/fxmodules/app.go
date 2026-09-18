@@ -29,6 +29,7 @@ func App(cfg config.Config) []fx.Option {
 		Platform,
 		Postgres,
 		UseCases,
+		Workers,
 		HTTP,
 	}
 }

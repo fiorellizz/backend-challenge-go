@@ -19,6 +19,7 @@ var SQS = fx.Module("sqs",
 	fx.Provide(
 		newSQSClient,
 		newEventPublisher,
+		sqsmsg.NewConsumer,
 		fx.Annotate(sqsReadiness, fx.ResultTags(`group:"readiness"`)),
 	),
 )

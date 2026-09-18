@@ -7,6 +7,7 @@ import (
 
 	"go.uber.org/fx"
 
+	"github.com/fiorellizz/backend-challenge-go/internal/adapter/sqsmsg"
 	"github.com/fiorellizz/backend-challenge-go/internal/platform/config"
 	"github.com/fiorellizz/backend-challenge-go/internal/usecase"
 	"github.com/fiorellizz/backend-challenge-go/internal/worker"
@@ -18,8 +19,16 @@ import (
 // consumer.
 var Workers = fx.Module("workers",
 	fx.Provide(newReferenceResolver, newOutboxPublisher),
-	fx.Invoke(runReferenceResolver, runOutboxPublisher),
+	fx.Invoke(runReferenceResolver, runOutboxPublisher, runConsumer),
 )
+
+func runConsumer(lc fx.Lifecycle, cfg config.Config, log *slog.Logger, c *sqsmsg.Consumer) {
+	if !cfg.Roles.Has(config.RoleConsumer) {
+		log.Info("consumer role disabled; sqs consumer not started")
+		return
+	}
+	runLoop(lc, "sqs-consumer", c.Run, log)
+}
 
 func newReferenceResolver(cfg config.Config, wagering *usecase.WageringService, log *slog.Logger) *worker.ReferenceResolver {
 	return worker.NewReferenceResolver(wagering, cfg.Reference.PollInterval, log)

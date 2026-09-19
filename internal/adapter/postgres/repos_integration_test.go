@@ -173,8 +173,9 @@ func TestForUpdateSerializesSameWalletOnly(t *testing.T) {
 	}()
 	<-locked
 
-	// Another wallet is not blocked.
-	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	// Another wallet is not blocked. The budget is generous: what is being
+	// asserted is that it does not wait for the other transaction at all.
+	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	defer cancel()
 	if err := uow.WithinTx(ctx, func(ctx context.Context, r usecase.Repositories) error {
 		_, err := r.Wallets.GetForUpdate(ctx, other.ID())
@@ -184,7 +185,7 @@ func TestForUpdateSerializesSameWalletOnly(t *testing.T) {
 	}
 
 	// The same wallet is blocked until the holder commits.
-	ctx2, cancel2 := context.WithTimeout(t.Context(), 500*time.Millisecond)
+	ctx2, cancel2 := context.WithTimeout(t.Context(), time.Second)
 	defer cancel2()
 	err := uow.WithinTx(ctx2, func(ctx context.Context, r usecase.Repositories) error {
 		_, err := r.Wallets.GetForUpdate(ctx, w.ID())
@@ -389,7 +390,7 @@ func TestOutboxClaimSkipsLockedRows(t *testing.T) {
 	}
 	close(release)
 
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(20 * time.Second)
 	for {
 		lag, err := repos.Outbox.OldestPendingAge(t.Context(), time.Now())
 		if err != nil {

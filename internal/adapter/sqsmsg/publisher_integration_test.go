@@ -45,7 +45,7 @@ func sqsClient(t *testing.T) (*sqs.Client, config.Config) {
 func drain(t *testing.T, client *sqs.Client, queueURL, aggregateID string) []types.Message {
 	t.Helper()
 	var out []types.Message
-	deadline := time.Now().Add(6 * time.Second)
+	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
 		res, err := client.ReceiveMessage(t.Context(), &sqs.ReceiveMessageInput{
 			QueueUrl: aws.String(queueURL), MaxNumberOfMessages: 10, WaitTimeSeconds: 1,

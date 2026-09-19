@@ -5,19 +5,32 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   unit:
     name: fmt, vet, unit, race
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
       - name: gofmt
-        run: test -z "$(gofmt -s -l .)" || (gofmt -s -l . && exit 1)
-      - name: go vet
-        run: go vet ./... && go vet -tags=integration ./... && go vet -tags=evidence ./test/evidence/
+        run: |
+          unformatted=$(gofmt -s -l .)
+          if [ -n "$unformatted" ]; then echo "$unformatted"; exit 1; fi
+      - name: go vet (every build tag)
+        run: |
+          go vet ./...
+          go vet -tags=integration ./...
+          go vet -tags=evidence ./test/evidence/
       - name: unit tests
         run: go test ./... -count=1
       - name: race detector
@@ -27,24 +40,35 @@ jobs:
     name: integration (postgres, localstack, keycloak)
     runs-on: ubuntu-latest
     needs: unit
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - name: start infrastructure
-        run: docker compose up -d postgres localstack keycloak migrate
-      - name: wait for infrastructure
+
+      # --wait returns only after every healthcheck passes, so there is no
+      # polling loop of our own to get wrong.
+      - name: start dependencies
+        run: docker compose up -d --wait --wait-timeout 300 postgres localstack keycloak
+
+      # `run --rm` propagates the exit code of the migration tool. Applying,
+      # reverting and applying again also proves the pair is reversible.
+      - name: migrations up, down, up
+        env:
+          DB_URL: postgres://wager:wager@postgres:5432/wager?sslmode=disable
         run: |
-          for i in $(seq 1 60); do
-            state=$(docker compose ps --format '{{.Service}} {{.Health}} {{.State}}')
-            if echo "$state" | grep -E '^(postgres|localstack|keycloak) ' | grep -qv healthy; then sleep 5; continue; fi
-            if ! echo "$state" | grep -q '^migrate .* exited'; then sleep 5; continue; fi
-            echo "$state"; exit 0
-          done
-          docker compose ps; docker compose logs keycloak | tail -50; exit 1
+          docker compose run --rm migrate
+          docker compose run --rm migrate -path=/migrations -database="$DB_URL" down -all
+          docker compose run --rm migrate
+
+      # The suite starts the application in process, so the app-* instances
+      # stay down (the make target stops them anyway).
       - name: integration tests (race)
         run: make test-integration-race
-      - name: logs on failure
+
+      - name: dump state and logs on failure
         if: failure()
-        run: docker compose logs --tail=200
+        run: |
+          docker compose ps -a
+          docker compose logs --tail=200

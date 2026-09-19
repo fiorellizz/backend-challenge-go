@@ -1,5 +1,7 @@
 # Wager Service
 
+[![ci](https://github.com/fiorellizz/backend-challenge-go/actions/workflows/ci.yml/badge.svg)](https://github.com/fiorellizz/backend-challenge-go/actions/workflows/ci.yml)
+
 Serviço em Go que processa operações financeiras de provedores de jogos (`BET`, `WIN`, `LOSS`, `REFUND`, `ROLLBACK`) sobre carteiras de jogadores, por HTTP e por SQS, com as mesmas garantias nas duas entradas e em múltiplas instâncias.
 
 O enunciado completo está em [`docs/challenge.md`](docs/challenge.md). As decisões técnicas estão em [`ARCHITECTURE.md`](ARCHITECTURE.md); as evidências de execução distribuída em [`EVIDENCE.md`](EVIDENCE.md); o teste de carga em [`docs/LOAD_TEST.md`](docs/LOAD_TEST.md).

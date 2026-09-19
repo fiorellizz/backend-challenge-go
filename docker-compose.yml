@@ -49,6 +49,11 @@ x-app-base: &app-base
     context: .
     dockerfile: Dockerfile
   restart: unless-stopped
+  # O encerramento gracioso pode levar ate SQS_WAIT_TIME_SECONDS (o long
+  # poll em curso termina) mais a drenagem do que ja foi recebido. O padrao
+  # do Docker e 10s ate o SIGKILL, o que cortaria esse processo pela metade;
+  # 30s da folga sobre o SHUTDOWN_TIMEOUT de 20s da aplicacao.
+  stop_grace_period: 30s
   depends_on:
     migrate:
       condition: service_completed_successfully

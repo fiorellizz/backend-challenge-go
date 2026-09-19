@@ -91,14 +91,39 @@ func (s *realStack) envelope(messageID, external, amount string) string {
 		messageID, external, external, s.playerID, s.walletID, amount)
 }
 
-// runFor runs the consumer loop for d, then returns once it stopped.
-func (s *realStack) runFor(t *testing.T, d time.Duration) {
+// runUntil runs the consumer loop until done reports true or the deadline
+// passes, then stops it. Waiting on the condition instead of on a fixed
+// duration keeps the test honest on a slow machine.
+func (s *realStack) runUntil(t *testing.T, timeout time.Duration, done func() bool) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), d)
-	defer cancel()
-	done := make(chan struct{})
-	go func() { s.consumer.Run(ctx); close(done) }()
-	<-done
+	ctx, cancel := context.WithCancel(t.Context())
+	stopped := make(chan struct{})
+	go func() { s.consumer.Run(ctx); close(stopped) }()
+
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) && !done() {
+		time.Sleep(200 * time.Millisecond)
+	}
+	cancel()
+	<-stopped
+}
+
+// queueEmpty reports whether the input queue has nothing left, visible or
+// in flight.
+func (s *realStack) queueEmpty(t *testing.T) bool {
+	t.Helper()
+	res, err := s.client.GetQueueAttributes(t.Context(), &sqs.GetQueueAttributesInput{
+		QueueUrl: aws.String(s.cfg.SQS.WagerQueueURL),
+		AttributeNames: []types.QueueAttributeName{
+			types.QueueAttributeNameApproximateNumberOfMessages,
+			types.QueueAttributeNameApproximateNumberOfMessagesNotVisible,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res.Attributes["ApproximateNumberOfMessages"] == "0" &&
+		res.Attributes["ApproximateNumberOfMessagesNotVisible"] == "0"
 }
 
 func (s *realStack) balance(t *testing.T) string {
@@ -113,7 +138,7 @@ func (s *realStack) balance(t *testing.T) string {
 func (s *realStack) dlqMessages(t *testing.T) []types.Message {
 	t.Helper()
 	var out []types.Message
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 10 && len(out) == 0; i++ {
 		res, err := s.client.ReceiveMessage(t.Context(), &sqs.ReceiveMessageInput{
 			QueueUrl: aws.String(s.cfg.SQS.WagerDLQURL), MaxNumberOfMessages: 10, WaitTimeSeconds: 1,
 			MessageAttributeNames: []string{"All"},
@@ -142,7 +167,12 @@ func TestConsumerProcessesRedeliversAndDeadLetters(t *testing.T) {
 	poisonID := "msg-" + uuid.NewString()
 	s.send(t, `{"messageId":"`+poisonID+`","type":"WagerTransactionRequested","data":{"kind":"OPENING"}}`, uuid.NewString())
 
-	s.runFor(t, 6*time.Second)
+	// "Approximate" queue counters can read zero before the broker has
+	// handed anything out, so the bet must also be settled.
+	s.runUntil(t, 90*time.Second, func() bool {
+		tx, err := s.wagering.GetProviderTransaction(t.Context(), "provider-a", external)
+		return err == nil && tx.Status() == wagering.Processed && s.queueEmpty(t)
+	})
 
 	if got := s.balance(t); got != "75.00" {
 		t.Fatalf("balance %s: the redelivery must not debit twice", got)
@@ -152,14 +182,8 @@ func TestConsumerProcessesRedeliversAndDeadLetters(t *testing.T) {
 		t.Fatalf("transaction: %v %v", err, tx)
 	}
 
-	attrs, err := s.client.GetQueueAttributes(t.Context(), &sqs.GetQueueAttributesInput{
-		QueueUrl: aws.String(s.cfg.SQS.WagerQueueURL), AttributeNames: []types.QueueAttributeName{types.QueueAttributeNameApproximateNumberOfMessages},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if attrs.Attributes["ApproximateNumberOfMessages"] != "0" {
-		t.Fatalf("input queue still has %s messages", attrs.Attributes["ApproximateNumberOfMessages"])
+	if !s.queueEmpty(t) {
+		t.Fatal("input queue still has messages")
 	}
 
 	found := false

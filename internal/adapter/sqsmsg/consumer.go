@@ -142,9 +142,13 @@ func (c *Consumer) Handle(ctx context.Context, body string) Handled {
 	}
 }
 
-// Run polls until ctx is cancelled. Cancellation stops fetching; messages
-// already received are handled to completion within the visibility
-// timeout, so a graceful stop never leaves a half-applied message.
+// Run polls until ctx is cancelled. Cancellation stops the loop before
+// the next poll; a poll already in flight is allowed to finish (it lasts
+// at most WaitTimeSeconds) and every message it returns is handled to
+// completion within the visibility timeout. Aborting the poll instead
+// would leave messages the broker had already handed out invisible until
+// the visibility timeout expires, which is what a crash does and what a
+// graceful stop must not do.
 func (c *Consumer) Run(ctx context.Context) {
 	c.log.Info("sqs consumer started", "queue", c.cfg.WagerQueueURL)
 	defer c.log.Info("sqs consumer stopped")
@@ -166,7 +170,11 @@ func (c *Consumer) Run(ctx context.Context) {
 	}
 }
 
-func (c *Consumer) receive(ctx context.Context) ([]types.Message, error) {
+func (c *Consumer) receive(parent context.Context) ([]types.Message, error) {
+	// Detached from cancellation on purpose (see Run); bounded so a broker
+	// that stops answering cannot hang the shutdown.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), time.Duration(c.cfg.WaitTimeSeconds+5)*time.Second)
+	defer cancel()
 	res, err := c.client.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
 		QueueUrl:              aws.String(c.cfg.WagerQueueURL),
 		MaxNumberOfMessages:   c.cfg.MaxMessages,

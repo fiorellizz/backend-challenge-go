@@ -28,9 +28,17 @@ const (
 
 	selectWallet = `SELECT ` + walletColumns + ` FROM wallets WHERE id = $1`
 
-	// FOR UPDATE serializes writers of this wallet only. Other wallets'
-	// rows are untouched, so unrelated players proceed in parallel.
-	selectWalletForUpdate = selectWallet + ` FOR UPDATE`
+	// FOR NO KEY UPDATE serializes writers of this wallet only; other
+	// wallets' rows are untouched, so unrelated players proceed in parallel.
+	//
+	// NO KEY, not plain FOR UPDATE: inserting a wager_transactions row takes
+	// a KEY SHARE lock on the referenced wallet (foreign key check). Two
+	// operations on the same wallet would each hold KEY SHARE and then wait
+	// for the other's to lift before acquiring FOR UPDATE: a deadlock. NO
+	// KEY UPDATE is compatible with KEY SHARE, conflicts with itself and
+	// with UPDATE, and is exactly the lock a balance change needs since the
+	// primary key never changes.
+	selectWalletForUpdate = selectWallet + ` FOR NO KEY UPDATE`
 
 	// The version predicate makes a lost update impossible even if a caller
 	// ever skipped the row lock: a stale version affects zero rows.

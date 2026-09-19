@@ -37,6 +37,7 @@ func NewPool(cfg config.Config) (*pgxpool.Pool, error) {
 	pc.MaxConns = cfg.Database.MaxConns
 	pc.MaxConnLifetime = 30 * time.Minute
 	pc.HealthCheckPeriod = 30 * time.Second
+	pc.ConnConfig.ConnectTimeout = 5 * time.Second
 
 	pool, err := pgxpool.NewWithConfig(context.Background(), pc)
 	if err != nil {

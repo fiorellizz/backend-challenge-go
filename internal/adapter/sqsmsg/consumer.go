@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -181,8 +182,11 @@ func (c *Consumer) receive(parent context.Context) ([]types.Message, error) {
 		WaitTimeSeconds:       c.cfg.WaitTimeSeconds,
 		VisibilityTimeout:     c.cfg.VisibilityTimeoutSeconds,
 		MessageAttributeNames: []string{"All"},
-		// MessageGroupId is needed to route rejected messages to the DLQ.
-		MessageSystemAttributeNames: []types.MessageSystemAttributeName{types.MessageSystemAttributeNameMessageGroupId},
+		// MessageGroupId routes rejected messages to the DLQ; the receive
+		// count sizes the backoff of a retried message.
+		MessageSystemAttributeNames: []types.MessageSystemAttributeName{
+			types.MessageSystemAttributeNameMessageGroupId, types.MessageSystemAttributeNameApproximateReceiveCount,
+		},
 	})
 	if err != nil {
 		return nil, err
@@ -218,12 +222,45 @@ func (c *Consumer) handleMessage(parent context.Context, m types.Message) {
 		c.metrics.DLQTotal.Inc()
 	case Retry:
 		c.metrics.ConsumerMessagesTotal.WithLabelValues("retry").Inc()
-		log.Warn("message left for redelivery", "reason", h.Reason)
+		delay := c.retryDelay(m)
+		log.Warn("message left for redelivery", "reason", h.Reason, "retryIn", delay.String())
+		c.postpone(ctx, m, delay)
 		return
 	}
 	if err := c.delete(ctx, m); err != nil {
 		// The outcome is committed; a redelivery will be a replay.
 		log.Error("could not delete message; redelivery will replay", "error", err.Error())
+	}
+}
+
+// retryDelay grows with the number of deliveries: 5s, 10s, 20s, 40s...
+// capped at the visibility timeout the queue allows us to set. Spreading
+// the redrive budget (maxReceiveCount) over a longer window gives a
+// transient outage time to clear before the message is dead-lettered.
+func (c *Consumer) retryDelay(m types.Message) time.Duration {
+	receives, _ := strconv.Atoi(m.Attributes["ApproximateReceiveCount"])
+	if receives < 1 {
+		receives = 1
+	}
+	delay := 5 * time.Second
+	for i := 1; i < receives && delay < 5*time.Minute; i++ {
+		delay *= 2
+	}
+	if delay > 5*time.Minute {
+		delay = 5 * time.Minute
+	}
+	return delay
+}
+
+// postpone changes the message visibility so the redelivery happens after
+// the backoff instead of right after the default visibility timeout. A
+// failure here is harmless: the message simply reappears on schedule.
+func (c *Consumer) postpone(ctx context.Context, m types.Message, delay time.Duration) {
+	_, err := c.client.ChangeMessageVisibility(ctx, &sqs.ChangeMessageVisibilityInput{
+		QueueUrl: aws.String(c.cfg.WagerQueueURL), ReceiptHandle: m.ReceiptHandle, VisibilityTimeout: int32(delay.Seconds()),
+	})
+	if err != nil {
+		c.log.Warn("could not change message visibility", "error", err.Error())
 	}
 }
 

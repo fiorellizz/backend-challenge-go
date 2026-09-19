@@ -12,6 +12,10 @@ import (
 	"github.com/fiorellizz/backend-challenge-go/internal/usecase"
 )
 
+// iterationTimeout bounds one unit of worker work (a batch, a claim) so a
+// dependency that stops answering cannot hang a loop indefinitely.
+const iterationTimeout = 30 * time.Second
+
 // ReferenceResolver retries reversals parked as PENDING_REFERENCE.
 type ReferenceResolver struct {
 	wagering *usecase.WageringService
@@ -49,7 +53,7 @@ func (r *ReferenceResolver) Run(ctx context.Context) {
 func (r *ReferenceResolver) RunOnce(ctx context.Context) (int, error) {
 	handled := 0
 	for ctx.Err() == nil {
-		outcome, found, err := r.wagering.ResolveNextPendingReference(ctx)
+		outcome, found, err := r.resolveOne(ctx)
 		if err != nil {
 			return handled, err
 		}
@@ -61,4 +65,10 @@ func (r *ReferenceResolver) RunOnce(ctx context.Context) (int, error) {
 		r.log.Info("pending reference handled", "outcome", string(outcome))
 	}
 	return handled, ctx.Err()
+}
+
+func (r *ReferenceResolver) resolveOne(ctx context.Context) (usecase.ReferenceOutcome, bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, iterationTimeout)
+	defer cancel()
+	return r.wagering.ResolveNextPendingReference(ctx)
 }

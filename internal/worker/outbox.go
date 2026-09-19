@@ -31,7 +31,7 @@ func (p *OutboxPublisher) Run(ctx context.Context) {
 	p.log.Info("outbox publisher started", "interval", p.interval.String())
 	defer p.log.Info("outbox publisher stopped")
 	for {
-		outcome, err := p.outbox.PublishBatch(ctx)
+		outcome, err := p.publishBatch(ctx)
 		if err != nil && ctx.Err() == nil {
 			p.log.Warn("outbox batch failed; will retry", "error", err.Error())
 		}
@@ -50,6 +50,14 @@ func (p *OutboxPublisher) Run(ctx context.Context) {
 		case <-time.After(p.interval):
 		}
 	}
+}
+
+// publishBatch bounds one batch so a frozen dependency cannot hang the
+// loop; the claim is rolled back on timeout and retried later.
+func (p *OutboxPublisher) publishBatch(ctx context.Context) (usecase.PublishOutcome, error) {
+	ctx, cancel := context.WithTimeout(ctx, iterationTimeout)
+	defer cancel()
+	return p.outbox.PublishBatch(ctx)
 }
 
 // observeLag refreshes the gauge whenever the loop goes idle, so the

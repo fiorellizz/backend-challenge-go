@@ -14,6 +14,12 @@ import (
 
 type correlationKey struct{}
 
+// requestTimeout bounds the work behind one request. A dependency that
+// stops answering (a frozen database connection, for instance) turns into
+// a 503 after this long instead of a hung request, and the connection it
+// was holding is released back to the pool.
+const requestTimeout = 10 * time.Second
+
 // Instrument wraps the router with the cross-cutting concerns of every
 // request: a correlation id (taken from X-Correlation-ID or minted, echoed
 // back in the response), one structured log line per request and the
@@ -27,7 +33,9 @@ func Instrument(next http.Handler, m *metrics.Metrics, log *slog.Logger) http.Ha
 			cid = uuid.Must(uuid.NewV7()).String()
 		}
 		w.Header().Set("X-Correlation-ID", cid)
-		r = r.WithContext(context.WithValue(r.Context(), correlationKey{}, cid))
+		ctx, cancel := context.WithTimeout(context.WithValue(r.Context(), correlationKey{}, cid), requestTimeout)
+		defer cancel()
+		r = r.WithContext(ctx)
 
 		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(rec, r)

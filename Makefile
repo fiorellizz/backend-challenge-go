@@ -160,8 +160,8 @@ check: fmt-check vet test race ## Portao de qualidade antes do commit
 # ---------------------------------------------------------------------------
 
 .PHONY: evidence
-evidence: up ## Roda os cenarios de falha e concorrencia e gera EVIDENCE.md
-	go test -tags=evidence ./test/evidence/... -count=1 -timeout=20m -v
+evidence: up ## Roda os cenarios de falha e concorrencia contra as 3 instancias e gera EVIDENCE.md
+	EVIDENCE=1 $(INTEGRATION_ENV) go test -tags=evidence ./test/evidence/... -count=1 -timeout=20m -v
 	@echo ">> EVIDENCE.md gerado na raiz do repositorio"
 
 # ---------------------------------------------------------------------------

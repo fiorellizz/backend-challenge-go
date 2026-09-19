@@ -138,12 +138,20 @@ INTEGRATION_ENV := DATABASE_URL="$(DB_URL)" \
 	SQS_EVENTS_QUEUE_URL=http://localhost:4566/000000000000/wager-events.fifo \
 	OIDC_ISSUER_URL=$(KC_URL)/realms/$(KC_REALM)
 
+# Os testes de integracao sobem a aplicacao dentro do proprio processo de
+# teste; as instancias app-1..3 do compose devem estar paradas para nao
+# disputar as filas e a outbox com elas. `make evidence` e o alvo que usa as
+# tres instancias reais.
+.PHONY: stop-apps
+stop-apps:
+	@docker compose stop app-1 app-2 app-3 >/dev/null 2>&1 || true
+
 .PHONY: test-integration
-test-integration: ## Testes de integracao com containers reais (make infra antes)
+test-integration: stop-apps ## Testes de integracao com containers reais (make infra antes)
 	$(INTEGRATION_ENV) go test -tags=integration ./internal/... ./test/integration/... -count=1 -timeout=15m -v
 
 .PHONY: test-integration-race
-test-integration-race: ## Integracao com detector de corrida
+test-integration-race: stop-apps ## Integracao com detector de corrida
 	$(INTEGRATION_ENV) go test -race -tags=integration ./internal/... ./test/integration/... -count=1 -timeout=20m
 
 .PHONY: cover
@@ -168,10 +176,13 @@ evidence: up ## Roda os cenarios de falha e concorrencia contra as 3 instancias 
 # Carga
 # ---------------------------------------------------------------------------
 
+# Variaveis: VUS (padrao 60), HOLD (60s), WALLETS (40). Exemplo:
+#   make load VUS=100 HOLD=2m
 .PHONY: load
-load: ## Teste de carga com k6 (docker) contra as instancias do compose
+load: ## Teste de carga com k6 (docker) contra as 3 instancias (make up antes)
 	docker run --rm --network host -v $(PWD)/deploy/k6:/scripts:ro \
-		-e API=$(API) -e KC_URL=$(KC_URL) grafana/k6:0.54.0 run /scripts/wager.js
+		-e KC_URL=$(KC_URL) -e VUS=$(or $(VUS),60) -e HOLD=$(or $(HOLD),60s) -e WALLETS=$(or $(WALLETS),40) \
+		grafana/k6:0.54.0 run /scripts/wager.js
 
 # ---------------------------------------------------------------------------
 # Auxiliares de desenvolvimento

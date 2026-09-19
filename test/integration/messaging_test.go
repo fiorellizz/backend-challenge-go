@@ -114,6 +114,12 @@ func TestSQSRedeliveryAndDeadLetter(t *testing.T) {
 
 func TestOutboxDeliversEventsWithCompetingPublishers(t *testing.T) {
 	s := start(t, nil)
+	// Earlier runs (load tests, evidence) leave events on the queue; empty
+	// it so the ones produced here can be found in time.
+	if _, err := s.sqs.PurgeQueue(context.Background(), &sqs.PurgeQueueInput{QueueUrl: aws.String(s.cfg.SQS.EventsQueueURL)}); err != nil {
+		t.Logf("purge events queue: %v (continuing)", err)
+	}
+	time.Sleep(500 * time.Millisecond)
 	w := s.openWallet("100.00")
 
 	// A second publisher, with its own connections, competes with the one

@@ -46,18 +46,24 @@ func (r *outboxRepo) ClaimPending(_ context.Context, limit int, now time.Time) (
 	return out, nil
 }
 
-func (r *outboxRepo) MarkPublished(_ context.Context, eventID string, _ time.Time) error {
+func (r *outboxRepo) MarkPublished(_ context.Context, eventIDs []string, _ time.Time) error {
 	if err := r.s.fail("Outbox.MarkPublished"); err != nil {
 		return err
 	}
-	for i := range r.s.Outbox {
-		if r.s.Outbox[i].Record.Envelope.EventID == eventID && !r.s.Outbox[i].Published {
-			r.s.Outbox[i].Published = true
-			r.s.Outbox[i].Record.Attempts++
-			return nil
+	for _, eventID := range eventIDs {
+		found := false
+		for i := range r.s.Outbox {
+			if r.s.Outbox[i].Record.Envelope.EventID == eventID && !r.s.Outbox[i].Published {
+				r.s.Outbox[i].Published = true
+				r.s.Outbox[i].Record.Attempts++
+				found = true
+			}
+		}
+		if !found {
+			return fmt.Errorf("event %s: %w", eventID, errs.ErrNotFound)
 		}
 	}
-	return fmt.Errorf("event %s: %w", eventID, errs.ErrNotFound)
+	return nil
 }
 
 func (r *outboxRepo) MarkFailed(_ context.Context, eventID string, attempts int, nextAttemptAt time.Time, lastError string) error {

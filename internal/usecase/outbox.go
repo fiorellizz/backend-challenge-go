@@ -60,19 +60,25 @@ func (s *OutboxService) PublishBatch(ctx context.Context) (PublishOutcome, error
 			return err
 		}
 		out.Claimed = len(records)
-		for _, rec := range records {
-			if err := s.publisher.Publish(ctx, rec); err != nil {
+		if len(records) == 0 {
+			return nil
+		}
+		results := s.publisher.Publish(ctx, records)
+		published := make([]string, 0, len(records))
+		for i, rec := range records {
+			if err := results[i]; err != nil {
 				out.Failed++
 				if err := s.recordFailure(ctx, r, rec, err, now); err != nil {
 					return err
 				}
 				continue
 			}
-			if err := r.Outbox.MarkPublished(ctx, rec.Envelope.EventID, s.now()); err != nil {
-				return err
-			}
-			out.Published++
+			published = append(published, rec.Envelope.EventID)
 		}
+		if err := r.Outbox.MarkPublished(ctx, published, s.now()); err != nil {
+			return err
+		}
+		out.Published = len(published)
 		return nil
 	})
 	return out, err

@@ -357,10 +357,12 @@ func TestOutboxClaimSkipsLockedRows(t *testing.T) {
 			firstClaim = recs
 			close(held)
 			<-release
+			ids := make([]string, 0, len(recs))
 			for _, rec := range recs {
-				if err := r.Outbox.MarkPublished(ctx, rec.Envelope.EventID, time.Now()); err != nil {
-					return err
-				}
+				ids = append(ids, rec.Envelope.EventID)
+			}
+			if err := r.Outbox.MarkPublished(ctx, ids, time.Now()); err != nil {
+				return err
 			}
 			return err
 		})

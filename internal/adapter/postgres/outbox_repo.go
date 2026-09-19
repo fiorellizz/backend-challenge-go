@@ -38,7 +38,7 @@ const (
 
 	markOutboxPublished = `
 		UPDATE outbox_events SET published_at = $2, attempts = attempts + 1, last_error = NULL
-		 WHERE event_id = $1 AND published_at IS NULL`
+		 WHERE event_id = ANY($1) AND published_at IS NULL`
 
 	markOutboxFailed = `
 		UPDATE outbox_events SET attempts = $2, next_attempt_at = $3, last_error = $4
@@ -91,13 +91,16 @@ func (r *OutboxRepository) ClaimPending(ctx context.Context, limit int, now time
 	return out, nil
 }
 
-func (r *OutboxRepository) MarkPublished(ctx context.Context, eventID string, now time.Time) error {
-	tag, err := r.q.Exec(ctx, markOutboxPublished, eventID, now.UTC())
+func (r *OutboxRepository) MarkPublished(ctx context.Context, eventIDs []string, now time.Time) error {
+	if len(eventIDs) == 0 {
+		return nil
+	}
+	tag, err := r.q.Exec(ctx, markOutboxPublished, eventIDs, now.UTC())
 	if err != nil {
 		return fmt.Errorf("mark published: %w", mapError(err))
 	}
-	if tag.RowsAffected() != 1 {
-		return fmt.Errorf("mark published %s: %w", eventID, errs.ErrNotFound)
+	if tag.RowsAffected() != int64(len(eventIDs)) {
+		return fmt.Errorf("mark published: %d of %d rows updated: %w", tag.RowsAffected(), len(eventIDs), errs.ErrNotFound)
 	}
 	return nil
 }

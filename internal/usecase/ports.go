@@ -122,7 +122,8 @@ type OutboxRepository interface {
 	// ClaimPending locks up to limit unpublished events whose next attempt
 	// is due, skipping rows other publishers hold.
 	ClaimPending(ctx context.Context, limit int, now time.Time) ([]OutboxRecord, error)
-	MarkPublished(ctx context.Context, eventID string, now time.Time) error
+	// MarkPublished stamps the given events as published in one statement.
+	MarkPublished(ctx context.Context, eventIDs []string, now time.Time) error
 	// MarkFailed records one failed attempt and when to try again.
 	MarkFailed(ctx context.Context, eventID string, attempts int, nextAttemptAt time.Time, lastError string) error
 	// OldestPendingAge returns how long the oldest unpublished event has
@@ -130,9 +131,11 @@ type OutboxRepository interface {
 	OldestPendingAge(ctx context.Context, now time.Time) (time.Duration, error)
 }
 
-// EventPublisher delivers one outbox record to the integration channel.
-// It must be idempotent on the receiving side: the same EventID may be
-// published more than once after a crash between publish and commit.
+// EventPublisher delivers outbox records to the integration channel. It
+// returns one error per record (nil on success) so a failed entry in a
+// batch does not hold the others back. Receivers must be idempotent: the
+// same EventID may be published again after a crash between publish and
+// commit.
 type EventPublisher interface {
-	Publish(ctx context.Context, rec OutboxRecord) error
+	Publish(ctx context.Context, recs []OutboxRecord) []error
 }

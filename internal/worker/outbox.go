@@ -9,6 +9,9 @@ import (
 	"github.com/fiorellizz/backend-challenge-go/internal/usecase"
 )
 
+// lagInterval is how often the outbox lag gauge is refreshed.
+const lagInterval = 2 * time.Second
+
 // OutboxPublisher drains the outbox in batches. When a batch was full it
 // immediately claims the next one; otherwise it waits for the poll
 // interval, so an idle instance costs one query per interval.
@@ -30,6 +33,7 @@ func NewOutboxPublisher(outbox *usecase.OutboxService, reads usecase.Repositorie
 func (p *OutboxPublisher) Run(ctx context.Context) {
 	p.log.Info("outbox publisher started", "interval", p.interval.String())
 	defer p.log.Info("outbox publisher stopped")
+	lastLag := time.Time{}
 	for {
 		outcome, err := p.publishBatch(ctx)
 		if err != nil && ctx.Err() == nil {
@@ -37,13 +41,18 @@ func (p *OutboxPublisher) Run(ctx context.Context) {
 		}
 		p.metrics.OutboxPublishedTotal.Add(float64(outcome.Published))
 		p.metrics.OutboxFailedTotal.Add(float64(outcome.Failed))
+		// Refresh the lag gauge on a clock, busy or idle: under load the
+		// loop never idles, and that is exactly when the lag matters.
+		if time.Since(lastLag) >= lagInterval {
+			p.observeLag(ctx)
+			lastLag = time.Now()
+		}
 		if err == nil && outcome.Claimed > 0 && outcome.Failed == 0 {
 			// More work is likely waiting; do not sleep.
 			if ctx.Err() == nil {
 				continue
 			}
 		}
-		p.observeLag(ctx)
 		select {
 		case <-ctx.Done():
 			return

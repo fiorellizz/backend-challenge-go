@@ -19,12 +19,16 @@ type fakePublisher struct {
 	failing   map[string]bool
 }
 
-func (p *fakePublisher) Publish(_ context.Context, rec usecase.OutboxRecord) error {
-	if p.failing[rec.Envelope.EventID] {
-		return errors.New("broker unavailable")
+func (p *fakePublisher) Publish(_ context.Context, recs []usecase.OutboxRecord) []error {
+	results := make([]error, len(recs))
+	for i, rec := range recs {
+		if p.failing[rec.Envelope.EventID] {
+			results[i] = errors.New("broker unavailable")
+			continue
+		}
+		p.published = append(p.published, rec.Envelope.EventID)
 	}
-	p.published = append(p.published, rec.Envelope.EventID)
-	return nil
+	return results
 }
 
 func outboxFixture(t *testing.T) (*fixture, *fakePublisher, *usecase.OutboxService) {
@@ -112,7 +116,7 @@ func TestCrashBetweenPublishAndCommitRepublishesSameEventID(t *testing.T) {
 	if _, err := svc.PublishBatch(context.Background()); !errors.Is(err, errs.ErrTransient) {
 		t.Fatalf("error = %v", err)
 	}
-	if len(pub.published) != 1 || len(f.store.PendingOutbox()) != 2 {
+	if len(pub.published) != 2 || len(f.store.PendingOutbox()) != 2 {
 		t.Fatalf("published %d, pending %d", len(pub.published), len(f.store.PendingOutbox()))
 	}
 
@@ -120,10 +124,19 @@ func TestCrashBetweenPublishAndCommitRepublishesSameEventID(t *testing.T) {
 	if out, err := svc.PublishBatch(context.Background()); err != nil || out.Published != 2 {
 		t.Fatalf("second run: %+v %v", out, err)
 	}
-	// The first event was delivered twice with the same id: consumers
-	// deduplicate on it. That is the at-least-once contract.
-	if pub.published[0] != pub.published[1] && pub.published[0] != pub.published[2] {
-		t.Fatalf("republication changed the event id: %v", pub.published)
+	// Both events were delivered twice with the same ids: consumers
+	// deduplicate on eventId. That is the at-least-once contract.
+	seen := map[string]int{}
+	for _, id := range pub.published {
+		seen[id]++
+	}
+	if len(seen) != 2 {
+		t.Fatalf("republication changed event ids: %v", pub.published)
+	}
+	for id, n := range seen {
+		if n != 2 {
+			t.Fatalf("event %s published %d times, want 2", id, n)
+		}
 	}
 }
 

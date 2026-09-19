@@ -138,7 +138,7 @@ func Load(getenv func(string) string) (Config, error) {
 			ProviderClaim: r.str("OIDC_PROVIDER_CLAIM", "provider_id"),
 		},
 		Outbox: Outbox{
-			BatchSize:    r.integer("OUTBOX_BATCH_SIZE", 20),
+			BatchSize:    r.integer("OUTBOX_BATCH_SIZE", 100),
 			PollInterval: r.duration("OUTBOX_POLL_INTERVAL", 500*time.Millisecond),
 			MaxAttempts:  r.integer("OUTBOX_MAX_ATTEMPTS", 10),
 		},

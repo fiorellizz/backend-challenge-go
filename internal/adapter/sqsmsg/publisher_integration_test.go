@@ -68,8 +68,19 @@ func drain(t *testing.T, client *sqs.Client, queueURL, aggregateID string) []typ
 	return out
 }
 
+// purge empties a queue so earlier runs (load tests, evidence scenarios)
+// cannot bury the messages this test looks for.
+func purge(t *testing.T, client *sqs.Client, queueURL string) {
+	t.Helper()
+	if _, err := client.PurgeQueue(t.Context(), &sqs.PurgeQueueInput{QueueUrl: aws.String(queueURL)}); err != nil {
+		t.Logf("purge %s: %v (continuing)", queueURL, err)
+	}
+	time.Sleep(500 * time.Millisecond)
+}
+
 func TestPublishDeliversEnvelopeWithFifoAttributes(t *testing.T) {
 	client, cfg := sqsClient(t)
+	purge(t, client, cfg.SQS.EventsQueueURL)
 	pub := sqsmsg.NewEventPublisher(client, cfg.SQS.EventsQueueURL)
 
 	aggregate := uuid.NewString()
@@ -82,12 +93,12 @@ func TestPublishDeliversEnvelopeWithFifoAttributes(t *testing.T) {
 		},
 		Data: json.RawMessage(`{"walletId":"` + aggregate + `","money":` + amount + `}`),
 	}
-	if err := pub.Publish(t.Context(), rec); err != nil {
-		t.Fatal(err)
+	if errs := pub.Publish(t.Context(), []usecase.OutboxRecord{rec}); errs[0] != nil {
+		t.Fatal(errs[0])
 	}
 	// Same event id again: SQS deduplicates within its window.
-	if err := pub.Publish(t.Context(), rec); err != nil {
-		t.Fatal(err)
+	if errs := pub.Publish(t.Context(), []usecase.OutboxRecord{rec}); errs[0] != nil {
+		t.Fatal(errs[0])
 	}
 
 	msgs := drain(t, client, cfg.SQS.EventsQueueURL, aggregate)

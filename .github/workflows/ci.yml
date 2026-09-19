@@ -1,0 +1,50 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  unit:
+    name: fmt, vet, unit, race
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: test -z "$(gofmt -s -l .)" || (gofmt -s -l . && exit 1)
+      - name: go vet
+        run: go vet ./... && go vet -tags=integration ./... && go vet -tags=evidence ./test/evidence/
+      - name: unit tests
+        run: go test ./... -count=1
+      - name: race detector
+        run: go test -race ./... -count=1
+
+  integration:
+    name: integration (postgres, localstack, keycloak)
+    runs-on: ubuntu-latest
+    needs: unit
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: start infrastructure
+        run: docker compose up -d postgres localstack keycloak migrate
+      - name: wait for infrastructure
+        run: |
+          for i in $(seq 1 60); do
+            state=$(docker compose ps --format '{{.Service}} {{.Health}} {{.State}}')
+            if echo "$state" | grep -E '^(postgres|localstack|keycloak) ' | grep -qv healthy; then sleep 5; continue; fi
+            if ! echo "$state" | grep -q '^migrate .* exited'; then sleep 5; continue; fi
+            echo "$state"; exit 0
+          done
+          docker compose ps; docker compose logs keycloak | tail -50; exit 1
+      - name: integration tests (race)
+        run: make test-integration-race
+      - name: logs on failure
+        if: failure()
+        run: docker compose logs --tail=200
